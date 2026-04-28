@@ -1,0 +1,106 @@
+=======================================================
+CONTENT BROADCASTING SYSTEM — ARCHITECTURE NOTES
+=======================================================
+
+1. AUTHENTICATION & RBAC FLOW
+-------------------------------
+- All protected routes require a Bearer JWT token in the Authorization header.
+- The verifyToken middleware validates the JWT and attaches { id, role, name } to req.user.
+- The authorizeRoles(...roles) middleware checks req.user.role against the allowed roles array.
+- Principals and Teachers are stored in the same users table, differentiated by the 'role' column.
+- JWT is signed with a secret key and expires in 7 days (configurable via env).
+- Passwords are hashed with bcrypt (12 salt rounds) — never stored in plain text.
+
+2. SUBJECT-BASED SYSTEM DESIGN
+--------------------------------
+- Each unique subject (e.g., Maths, Science) has one row in content_slots table.
+- This allows independent rotation timers per subject.
+- content_schedule links content items to their subject slot with rotation_order and duration.
+- The public API accepts an optional ?subject= query param to filter by subject.
+
+3. UPLOAD HANDLING APPROACH
+-----------------------------
+- Multer handles multipart/form-data file uploads.
+- Files are validated by MIME type (not just extension) to prevent spoofing.
+- Only image/jpeg, image/png, image/gif are allowed (as per requirement).
+- Max file size: 10MB (configurable via MAX_FILE_SIZE_MB env var).
+- Files are stored locally in the /uploads directory with unique timestamped names.
+- The file path (file_url) is stored in the database for retrieval.
+- Bonus: Replace diskStorage with AWS S3 multer-s3 for cloud storage.
+
+4. APPROVAL WORKFLOW DESIGN
+-----------------------------
+- Content starts in 'pending' state immediately after upload.
+- Only users with role='principal' can approve or reject.
+- Rejection REQUIRES a rejection_reason string (validated server-side).
+- Approval timestamps (approved_by, approved_at) are recorded for audit trails.
+- Status transitions: pending → approved OR pending → rejected.
+- Approved content is not immediately visible — it must also be within its time window.
+
+5. SCHEDULING / ROTATION LOGIC (CRITICAL)
+------------------------------------------
+Algorithm in utils/timeWindow.js → getActiveContentByRotation():
+
+Step 1: Filter all content items to those whose current time falls within [start_time, end_time].
+Step 2: If no items pass the filter, return null ("No content available").
+Step 3: Sort remaining items by rotation_order (ascending).
+Step 4: Calculate the total cycle duration = sum of all item.duration values in milliseconds.
+Step 5: Use the earliest start_time among filtered items as the "epoch" (reference point).
+Step 6: Calculate elapsedMs = Date.now() - epoch.
+Step 7: positionInCycle = elapsedMs % totalCycleDuration.
+Step 8: Walk through sorted items, accumulating duration until the accumulated value exceeds positionInCycle.
+Step 9: The item at that position is the currently active content.
+
+This gives continuous, deterministic rotation without needing a cron job or stored state.
+Each subject has its own independent rotation because getLiveContent filters per-subject.
+
+Example:
+  Content A: duration=5min, Content B: duration=5min, Content C: duration=5min
+  Cycle = 15 minutes. If 7 minutes elapsed → A covers 0-5min, B covers 5-10min → return B.
+
+6. DATABASE DESIGN DECISIONS
+------------------------------
+- users table: single table for all roles (principal + teacher), differentiated by 'role' column.
+- content table: stores metadata + file reference. Status is a CHECK constraint enum.
+- content_slots: one row per unique subject. Acts as a grouping key for scheduling.
+- content_schedule: join table between content and slots. Stores rotation_order + duration.
+  This separation allows the same slot to have many content items with individual durations.
+- Foreign keys use ON DELETE CASCADE to prevent orphaned records.
+- Indexes to add in production: content(uploaded_by), content(status), content_schedule(slot_id).
+
+7. FOLDER STRUCTURE
+--------------------
+src/config/      → Database pool and multer configuration
+src/controllers/ → Thin request handlers. Extract data from req, call service, send response.
+src/services/    → All business logic lives here. Controllers call services, never models directly (mostly).
+src/models/      → Raw SQL queries. One function per query. No business logic.
+src/middlewares/ → Cross-cutting concerns: auth, RBAC, validation, error handling.
+src/routes/      → Route definitions only. Wire middleware + controller together.
+src/utils/       → Reusable helpers: ApiError, ApiResponse, asyncHandler, timeWindow logic.
+uploads/         → Local file storage (ephemeral; use S3 in production).
+
+8. MIDDLEWARE USAGE
+--------------------
+Request pipeline for a protected route:
+  Request → helmet → cors → json parser → morgan → verifyToken → authorizeRoles → validate → controller → errorHandler
+
+The asyncHandler utility wraps every async controller/service so unhandled promise rejections
+are automatically passed to the global error handler (no try/catch boilerplate in controllers).
+
+9. SCALABILITY APPROACH
+-------------------------
+Implemented:
+- express-rate-limit on the public /content/live endpoint (100 req/15min).
+- helmet for HTTP security headers.
+- Stateless JWT auth (horizontally scalable — no session store needed).
+
+Bonus / Production additions:
+- Redis Cache: Cache /content/live/:teacherId responses for 30 seconds.
+  Invalidate cache on content approval or schedule change.
+  Implementation: redis.get(cacheKey) → if hit, return; else compute and redis.setex(cacheKey, 30, result).
+- Message Queue (Bull/BullMQ): Move file processing to a background worker queue.
+- S3 Storage: Replace local uploads/ with multer-s3 + AWS SDK.
+- Connection Pooling: pg Pool is already configured (default 10 connections).
+- DB Indexes: Add on content(status), content(uploaded_by), content_schedule(slot_id).
+- PM2: Use cluster mode to utilize all CPU cores in production.
+- Nginx: Reverse proxy with gzip compression in front of Node.js.
