@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 20% 97%;
+    --foreground: 0 0% 17%;
+    --card: 40 20% 97%;
+    --card-foreground: 0 0% 17%;
+    --popover: 40 20% 97%;
+    --popover-foreground: 0 0% 17%;
+    --primary: 0 0% 17%;
+    --primary-foreground: 40 20% 97%;
+    --secondary: 40 10% 90%;
+    --secondary-foreground: 0 0% 17%;
+    --muted: 40 10% 90%;
+    --muted-foreground: 0 0% 42%;
+    --accent: 174 56% 38%;
+    --accent-foreground: 40 20% 97%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 40 20% 97%;
+    --border: 40 10% 88%;
+    --input: 40 10% 88%;
+    --ring: 174 56% 38%;
+    --radius: 0.5rem;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  input,
+  button,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  ::selection {
+    background-color: hsl(var(--accent) / 0.18);
+    color: hsl(var(--foreground));
+  }
+
+  body {
+    min-height: 100vh;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-body), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-image:
+      radial-gradient(circle at top left, hsl(var(--accent) / 0.08), transparent 32%),
+      radial-gradient(circle at top right, hsl(var(--primary) / 0.04), transparent 28%);
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-heading), Georgia, serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  .teal { color: #2A9D8F; }
+  .bg-teal { background-color: #2A9D8F; }
+  .border-teal { border-color: #2A9D8F; }
+  .text-charcoal { color: #2C2C2C; }
+  .text-muted-custom { color: #6B6B6B; }
+  .bg-offwhite { background-color: #F8F7F4; }
+}
